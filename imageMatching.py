@@ -1,5 +1,5 @@
 '''
-Cpoyright(C) 2020 Peng Shuying
+Cpoyright(C) 2021 Peng Shuying
 This code is running on client(Ubuntu on TX2). It is used to image registration.
 After extracting a set of key feature points by the improved SIFT algorithm, 
 three groups of optimal pairs are found according to the ratio of the nearest 
@@ -20,18 +20,17 @@ from skimage.transform import rescale
 from skimage.color import rgb2gray
 import time
 
-def presessing(image):
+def preprosessing(image):
     X = [0.0] * 256
     count = 0.0
     height, width = image.shape[:2]
     if(len(image.shape)>2):
         image = cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
     size = (width, height)
-    img = cv2.resize(image, size, interpolation=cv2.INTER_CUBIC).astype(np.int16)
     for i in range(height):
         for j in range(width):
-            if img[i,j] >= 0 and img[i,j] <= 255:
-                X[img[i,j]] += 1.0
+            if image[i,j] >= 0 and image[i,j] <= 255:
+                X[image[i,j]] += 1.0
                 count += 1.0
     if(count != size[0] * size[1]):
         print('Some pixels\' value are not in [0,255]')
@@ -72,31 +71,29 @@ def orb_kp(image):
 def sift_kp(img):
     if (len(img.shape)>2):
         img = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
-    image = presessing(img)
+    
     sift = cv2.xfeatures2d.SIFT_create()
     kp,des = sift.detectAndCompute(image,None)
     #kp_image = cv2.drawKeypoints(image,kp,None)
     #print(len(kp))
     return kp,des
 
-def surf_kp(image):
-    # more efficient
+def surf_kp(image):    # more efficient
     if (len(image.shape)>2):
         image = cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
     #image = cv2.GaussianBlur(image,(9,9),0)
     #image = cv2.medianBlur(image,9)
-    img = presessing(image)
-    #kp, des = cv2.AKAZE_create().detectAndCompute(img, None)
+    #kp, des = cv2.AKAZE_create().detectAndCompute(image, None)
     
     surf = cv2.xfeatures2d.SURF_create()
-    surf.setHessianThreshold(2000)
+    surf.setHessianThreshold(4000)
     surf.setExtended(True)
     surf.setUpright(True)
-    kp, des = surf.detectAndCompute(img, None)
+    kp, des = surf.detectAndCompute(image, None)
     #print(kp[1].pt)
     return kp,des
 
-def get_good_match(des1,des2,kp1,kp2):
+def get_good_match(des1,des2,kp1,kp2,size):
     _,_,V = np.linalg.svd(des2)
     size_projected = 32
     projector = V[:,:size_projected]
@@ -110,32 +107,35 @@ def get_good_match(des1,des2,kp1,kp2):
     FLANN_INDEX_LSH = 6
     index_params=dict(algorithm=FLANN_INDEX_KDTREE, trees=4)
     #index_params=dict(algorithm=FLANN_INDEX_LSH, table_number=6, key_size=12, multi_probe_level=1)  # for ORB
-    search_params=dict(checks=20)   # iterating times
+    search_params=dict(checks=10)   # iterating times
     flann=cv2.FlannBasedMatcher(index_params,search_params)
     matches=flann.knnMatch(des1,des2,k=2)  # not for ORB
     
     good = []
     for m, n in matches:
-        if m.distance <= 0.5 * n.distance:
+        if m.distance <= 0.6 * n.distance:
             px,py = kp2[m.trainIdx].pt
-            #m.distance = m.distance / n.distance
-            m.distance = -abs(px-400)-abs(py-400)
+            m.distance = m.distance / n.distance
+            #m.distance = -abs(px-size[0])-abs(py-size[1])
             good.append(m)
     return good
 
 def get_best3_match(kp1, goodMatch):
     p = goodMatch[0]   #min1
+    q = goodMatch[1]   #min2
+    '''
     px,py = kp1[p.queryIdx].pt
-    dis = -10.0
+    dis = -100.0
     for match in goodMatch[1:]:
         qx, qy = kp1[match.queryIdx].pt
         a = ((py - qy)**2 + (px - qx)**2)**0.5
         if(dis < a):
             q = match
             dis = a
-    a = dis
-    dis = -10.0
+    '''
     qx, qy = kp1[q.queryIdx].pt
+    a = ((py - qy)**2 + (px - qx)**2)**0.5
+    dis = -100.0
     for match in goodMatch[1:]:
         if(match == q):
             continue
@@ -192,19 +192,34 @@ def get_best4_match(kp1, goodMatch):
     return bestMatch
 
 def siftImageAlignment(image1,image2):
+    print('Operating')
     height, width = image1.shape[:2]
     log = open('log.txt','a')
     start_total = time.time()
     old_size = (width, height)
     if(image2.shape != image1.shape):
         image2 = cv2.resize(image2, old_size, interpolation=cv2.INTER_CUBIC)
-    size = (800,800)
-    img1 = cv2.resize(image1, size, interpolation=cv2.INTER_CUBIC)
-    img2 = cv2.resize(image2, size, interpolation=cv2.INTER_CUBIC)
-    
+    size = (int(width/2+0.5), int(height/2+0.5))
+    image1 = cv2.resize(image1, size, interpolation=cv2.INTER_CUBIC)
+    image2 = cv2.resize(image2, size, interpolation=cv2.INTER_CUBIC)
+
+    start = time.time()    
+    img1 = preprosessing(image1)
+    img2 = preprosessing(image2)
+    end = time.time()
+    print("time of preprosessing cost: ",end-start,'s')
+    log.write("time of preprosessing cost: " + str(end - start) + ' seconds\n')
+    start = time.time()   
     kp1,des1 = surf_kp(img1)
     kp2,des2 = surf_kp(img2)
-    goodMatch = get_good_match(des1,des2,kp1,kp2)
+    end = time.time()
+    print("time of SIFT cost: ",end-start,'s')
+    log.write("time of SIFT cost: " + str(end - start) + ' seconds\n')
+    start = time.time() 
+    goodMatch = get_good_match(des1,des2,kp1,kp2,size)
+    end = time.time()
+    print("time of feature matching cost: ",end-start,'s')
+    log.write("time of feature matching cost: " + str(end - start) + ' seconds\n')
 
     start = time.time()
     imgOut=[]
@@ -213,25 +228,27 @@ def siftImageAlignment(image1,image2):
     # print(len(goodMatch))
     if len(goodMatch) >= 3:
         goodMatch = sorted(goodMatch,key=lambda x:x.distance)
-        bestMatch = get_best3_match(kp1, goodMatch)
-        #bestMatch = goodMatch[:3]  #min3
+        #bestMatch = get_best3_match(kp1, goodMatch)
+        bestMatch = goodMatch[:3]  #min3
         
         ptsA = np.float32([kp1[m.queryIdx].pt for m in bestMatch]).reshape(-1, 1, 2)
         ptsB = np.float32([kp2[m.trainIdx].pt for m in bestMatch]).reshape(-1, 1, 2)
-        #ransacReprojThreshold = 5.0
+        ransacReprojThreshold = 5.0
         #H, status = cv2.findHomography(ptsA,ptsB,cv2.RANSAC,ransacReprojThreshold)
         H = cv2.getAffineTransform(ptsA,ptsB)
         if __name__ == "__main__":
             img3 = cv2.drawMatches(img1,kp1,img2,kp2,bestMatch,None, flags=2)
             plt.imshow(img3),plt.show()
             print(H)
-    imgOut = cv2.warpAffine(img2, H, size,flags=cv2.INTER_CUBIC + cv2.WARP_INVERSE_MAP,borderMode=cv2.BORDER_REPLICATE)
-    #imgOut = cv2.warpPerspective(img2, H, (img1.shape[1],img1.shape[0]),flags=cv2.INTER_CUBIC + cv2.WARP_INVERSE_MAP,borderMode=cv2.BORDER_REPLICATE)
+    #imgOut = cv2.warpPerspective(image2, H, (image1.shape[1],image1.shape[0]),flags=cv2.INTER_CUBIC + cv2.WARP_INVERSE_MAP,borderMode=cv2.BORDER_REPLICATE)
+    imgOut = cv2.warpAffine(image2, H, (image1.shape[1],image1.shape[0]),flags=cv2.INTER_CUBIC + cv2.WARP_INVERSE_MAP,borderMode=cv2.BORDER_REPLICATE)
     imgOut = cv2.resize(imgOut, old_size, interpolation=cv2.INTER_CUBIC)
-    
-    end_total = time.time()
-    print("time of image_matching cost",end_total-start_total,'s')
-    log.write("time of image_matching cost"+str(end_total-start_total)+' s\n')
+
+    end = time.time()
+    print("time of Affine cost: ",end-start,'s')
+    log.write("time of Affine cost: " + str(end - start) + ' seconds\n')
+    print("time of TOTAL image_registration cost: ",end-start_total,'s')
+    log.write("time of TOTAL image_registration cost: "+str(end-start_total)+' seconds\n')
     log.close()
     return imgOut,H,status
 

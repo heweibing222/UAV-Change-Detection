@@ -1,5 +1,5 @@
 '''
-Cpoyright(C) 2020 Peng Shuying
+Cpoyright(C) 2021 Peng Shuying
 This code is running on client(Ubuntu on TX2). It is used to generate the 
 difference image. In order to improve the processing efficiency, the 
 differential image is sampled down, and then a feature vector of pixel 
@@ -68,7 +68,6 @@ def find_vector_set(diff_image, new_size):
     return vector_set, mean_vec
     
 def find_FVS(EVS, diff_image, mean_vec, new):
-    start_vs = time.time()
     N_pixel = new[0] * new[1] - 4 * new[0] - 4 * new[1] + 16
     feature_vector_set = np.zeros((N_pixel, 25))
     FVS = np.zeros((N_pixel, 25))
@@ -79,12 +78,6 @@ def find_FVS(EVS, diff_image, mean_vec, new):
             tem_array = diff_image[2 + k: index_1_k, 2 + kk: index_1_kk]
             index_FV = (k + 2) * 5 + kk + 2
             feature_vector_set[:, index_FV] = tem_array.flatten()
-    end_vs = time.time()
-    log = open('log.txt','a')
-    print('runtime of vector space: ' + str(end_vs - start_vs) + ' seconds')
-    log.write('runtime of vector space: ' + str(end_vs - start_vs) + ' seconds\n')
-
-    start_fvs = time.time()
     EVS = np.array(EVS)
     n = 12
     thr = []
@@ -105,22 +98,13 @@ def find_FVS(EVS, diff_image, mean_vec, new):
     #FVS = np.dot(feature_vector_set, EVS)
     FVS = FVS - mean_vec
     #print("\nfeature vector space size",FVS.shape)
-    end_fvs = time.time()
-    print("runtime of feature vector space:t",end_fvs-start_fvs,'s')
-    log.write('runtime of vector space: ' + str(end_vs - start_vs) + ' s\n')
-    log.close()
+
     return FVS
 
 def clustering(FVS, components, new):
-    start = time.time()
-    kmeans = KMeans(components,max_iter=20,precompute_distances=True,\
-                    init='k-means++',n_jobs=-1,n_init=1)
+    kmeans = KMeans(components,max_iter=15,precompute_distances=True,\
+                    init='k-means++',n_jobs=-1,n_init=3)
     kmeans.fit(FVS)
-    end = time.time()
-    log = open('log.txt','a')
-    print("time of clustering cost:(part 1)",end-start,'s')
-    log.write("time of clustering cost:(part 1)" + str(end-start) + ' s\n')
-    log.close()
     output = kmeans.predict(FVS)
     count  = Counter(output)
     least_index = min(count, key = count.get)            
@@ -130,35 +114,31 @@ def clustering(FVS, components, new):
     return least_index, change_map
    
 def find_PCAKmeans(imagepath1, imagepath2):
-    start_all = time.time()
     print('Operating')
-    
+    log = open('log.txt','a')
+    start_all = time.time()
     type1 = imagepath1.split('.')[-1]
     type2 = imagepath2.split('.')[-1]
     image1 = imread(imagepath1,format=type1)
     image2 = imread(imagepath2,format=type2)
-
+    
+    diff_image = abs(image1 - image2)
     if(len(image1.shape)>2):
         image1 = cv2.cvtColor(image1,cv2.COLOR_BGR2GRAY)
-        image2 = cv2.cvtColor(image2,cv2.COLOR_BGR2GRAY)   
+        image2 = cv2.cvtColor(image2,cv2.COLOR_BGR2GRAY)
+        diff_image = cv2.cvtColor(diff_image,cv2.COLOR_BGR2GRAY) 
 
     height, width = image1.shape[:2]
     old_size = (width, height)    
-    size = (800, 800)
+    size = (int(width/2+0.5), int(height/2+0.5))
     image1 = cv2.resize(image1, size, interpolation=cv2.INTER_CUBIC).astype(np.int16)
     image2 = cv2.resize(image2, size, interpolation=cv2.INTER_CUBIC).astype(np.int16)
+    diff_image = cv2.resize(diff_image, size, interpolation=cv2.INTER_CUBIC).astype(np.int16)
     new_size = np.asarray(image1.shape)
 
     start = time.time()
     diff_image = abs(image1 - image2)
-    end = time.time()
-    print('runtime of diff: ' + str(end - start) + ' seconds')
-    log = open('log.txt','a')
-    log.write('runtime of diff: ' + str(end - start) + ' seconds\n')
-    log.close()
     #imwrite(imagepath2.split(type2)[0]+'diff.'+type1, diff_image)
-    start = time.time()
-
     vector_set = np.zeros((int(new_size[0] * new_size[1] / 25), 25))
     mean_vec = np.zeros((25))
     mean_vec_part = np.zeros((25))
@@ -184,49 +164,46 @@ def find_PCAKmeans(imagepath1, imagepath2):
     mean_vec = mean_vec / n
 
     end = time.time()
-    print("time of find_vector_set cost",end-start,'s')
-    log = open('log.txt','a')
-    log.write("time of find_vector_set cost" + str(end - start) + ' seconds\n')
-    log.close()
-    
+    print("time of find_vector_set cost: ",end-start,'s')
+    log.write("time of find_vector_set cost: " + str(end - start) + ' seconds\n')
+
     start = time.time()
     pca  = PCA()
     pca.fit(vector_set)
     EVS = pca.components_
     #print(EVS.shape)
-    end = time.time()
-    print("time of PCA cost",end-start,'s')
-    log = open('log.txt','a')
-    log.write("time of PCA cost" + str(end - start) + ' seconds\n')
-    log.close()
     
     FVS = find_FVS(EVS, diff_image, mean_vec, new_size)    
-    
+    end = time.time()
+    print("time of PCA cost: " + str(end - start) + ' seconds\n')
+    log.write("time of PCA cost: " + str(end - start) + ' seconds\n')
+
     #print('\ncomputing k means')
-    components = 5
+    components = 3
+    start = time.time()
     least_index, change_map = clustering(FVS, components, new_size)
+    end = time.time()
+    print("time of clustering cost: ",end-start,'seconds')
+    log.write("time of clustering cost: " + str(end-start) + ' seconds\n')
     
     start = time.time()
     change_map[change_map == least_index] = 255
     change_map[change_map != 255] = 0
-    end = time.time()
-    print('runtime of highlight: ' + str(end - start) + ' seconds')
-    log = open('log.txt','a')
-    log.write('runtime of highlight: ' + str(end - start) + ' seconds\n')
-    log.close()
-
-    start = time.time()    
+ 
     change_map = change_map.astype(np.uint8)
-    kernel     = np.ones((9,9), dtype=np.uint8)
+    kernel     = np.asarray(((0,0,1,0,0),
+                             (0,1,1,1,0),
+                             (1,1,1,1,1),
+                             (0,1,1,1,0),
+                             (0,0,1,0,0)), dtype=np.uint8)
     ChangeMap = cv2.resize(change_map, old_size, interpolation=cv2.INTER_CUBIC)
     cleanChangeMap = cv2.erode(ChangeMap,kernel)
     cleanChangeMap = cv2.dilate(cleanChangeMap,kernel)
     end = time.time()
-    #print('runtime of erode&dilate: ' + str(end - start) + ' seconds')
-    #print('runtime of all: ' + str(end - start_all) + ' seconds') 
-    log = open('log.txt','a')
-    log.write('runtime of erode&dilate: ' + str(end - start) + ' seconds\n')
-    log.write('runtime of all: ' + str(end - start_all) + ' seconds\n') 
+    #print('runtime of noise elimination: ' + str(end - start) + ' seconds')
+    #print('runtime of TOTAL change_detection: ' + str(end - start_all) + ' seconds') 
+    log.write('runtime of noise elimination: ' + str(end - start) + ' seconds\n')
+    log.write('runtime of TOTAL change_detection: ' + str(end - start_all) + ' seconds\n') 
     log.close()
     imwrite(imagepath2.split(type2)[0]+"changemap."+type1, ChangeMap)
     imwrite(imagepath2.split(type2)[0]+"cleanchangemap."+type1, cleanChangeMap)
@@ -234,8 +211,8 @@ def find_PCAKmeans(imagepath1, imagepath2):
 if __name__ == "__main__":
     a = './ElephantButte_08201991.jpg'
     b = './ElephantButte_08272011.jpg'
-    a1 = './001.jpg'
-    a2 = './001.001.jpg'
+    a1 = './001a.jpg'
+    a2 = './001b.001a.jpg'
     b1 = './Andasol_09051987.jpg'
     b2 = './Andasol_09122013.jpg'
     tst1 = './1599621322280.jpg'

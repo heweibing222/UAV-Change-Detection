@@ -153,14 +153,14 @@ def main():
         trans_server(to_path = dir2)     
     elif args.system == 'client':
         print('Operating...\n')
-        '''
+
         import camera_v1 as cam
         cam.start(str(dir2), args.delay, args.num,\
                   args.width, args.height, args.mode)
-                  '''
+
         with concurrent.futures.ProcessPoolExecutor() as executor:
             futures.add(executor.submit(dealing,dir1,dir2, args.limit))
-            #futures.add(executor.submit(trans_client,args.ipaddr, dir2))
+            futures.add(executor.submit(trans_client,args.ipaddr, dir2))
         try:
             for future in concurrent.futures.as_completed(futures):
                 err = future.exception()
@@ -184,7 +184,7 @@ if True:
 Test for trans_server():
 python3 main.py -s server -t 0
 Test for trans_server():
-python3 main.py -s client -t 0 -ip 192.77.108.240 -d 2 -l 50 -n 0 -m 1
+python3 main.py -s client -t 1 -ip 192.77.108.240 -d 2 -l 50 -n 0 -m 1
                                                 -d 2 -l 50 -n 5 -m 2
                                     192.168.199.190
 '''

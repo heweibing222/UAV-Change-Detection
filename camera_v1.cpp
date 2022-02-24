@@ -1,4 +1,4 @@
-/******  Cpoyright(C) 2020 Peng Shuying
+/******  Cpoyright(C) 2021 Peng Shuying
 This code is running on client(Ubuntu on TX2). It calls and manages the camera 
 module and GPS sensor independently. Only when the GPS module can connect to 
 the satellite normally and output POS information is the current image stream 
@@ -127,3 +127,24 @@ PyMODINIT_FUNC PyInit_camera_v1(void)
 {
     return PyModule_Create(&test_module);
 }
+
+// Use Makefile
+/*
+DIR	= /usr
+LIBDIR      = $(DIR)/lib/ 
+BINDIR      = $(DIR)/bin/
+SRCDIR      = $(DIR)/src/
+HEADPATH    = $(DIR)/include/ -I ../include/
+
+CC = gcc  -D_FILE_OFFSET_BITS=64
+GXX = g++ -D_FILE_OFFSET_BITS=64
+MPI_CC  =mpicc  -D_FILE_OFFSET_BITS=64
+MPI_XX  =mpicxx -D_FILE_OFFSET_BITS=64
+
+RM      =rm -fr
+CP      =cp -fr
+AR      =ar -r
+
+camera_v1: camera_v1.o
+	$(GXX) -fPIC -shared camera_v1.cpp getgpsdata.cpp -I $(HEADPATH) `pkg-config --cflags --libs opencv` -o camera_v1.so -lm
+*/
